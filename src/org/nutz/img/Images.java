@@ -226,7 +226,7 @@ public class Images {
      */
     public static BufferedImage zoomScale(BufferedImage im, int w, int h, Color bgColor) {
         if (w == -1 || h == -1) {
-            return zoomScale(im, w, h);
+            return scale(im, w, h);
         }
 
         // 检查背景颜色
@@ -264,7 +264,7 @@ public class Images {
         }
 
         // 创建图像
-        BufferedImage re = new BufferedImage(w, h, im.getType());
+        BufferedImage re = new BufferedImage(w, h, im.getType() == 0 ? BufferedImage.TYPE_3BYTE_BGR : im.getType());
         Graphics2D gc = re.createGraphics();
         if (null != bgColor) {
             gc.setColor(bgColor);
@@ -963,6 +963,9 @@ public class Images {
             }
             if (img instanceof File)
                 return ImageIO.read((File) img);
+
+            if(img instanceof byte[])
+                return ImageIO.read(new ByteArrayInputStream((byte[])img));
 
             if (img instanceof URL)
                 img = ((URL) img).openStream();

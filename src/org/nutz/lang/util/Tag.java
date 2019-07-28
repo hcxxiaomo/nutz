@@ -217,7 +217,10 @@ public class Tag extends SimpleNode<HtmlToken> {
     }
 
     public String getNodeValue() {
-        return this.get().getValue();
+        HtmlToken ht = this.get();
+        if (null != ht)
+            return ht.getValue();
+        return null;
     }
 
     public String getText() {
@@ -238,6 +241,17 @@ public class Tag extends SimpleNode<HtmlToken> {
             }
         }
         return sb.toString();
+    }
+
+    public String getTextContent() {
+        String re = this.getText();
+        if (Strings.isBlank(re)) {
+            re = this.getNodeValue();
+        }
+        if (Strings.isBlank(re)) {
+            re = this.htmlSegment;
+        }
+        return re;
     }
 
     public Tag setText(String text) {
@@ -399,14 +413,21 @@ public class Tag extends SimpleNode<HtmlToken> {
         if (level > 0)
             sb.append(Strings.dup(' ', level * 2));
         __join_tag_begin(sb, this);
-        if (getChildren().size() == 1) {
-            sb.append(getText());
-        } else if (hasChild()) {
-            for (Node node : getChildren()) {
-                node.toXml(sb, level + 1);
+        if (hasChild()) {
+            boolean flag = true;
+            if (getChildren().size() == 1) {
+                if (getChildren().get(0).get().getName() == null) {
+                    sb.append(getText());
+                    flag = false;
+                }
             }
-            if (level > 0)
-                sb.append(Strings.dup(' ', level * 2));
+            if (flag) {
+                for (Node node : getChildren()) {
+                    node.toXml(sb, level + 1);
+                }
+                if (level > 0)
+                    sb.append(Strings.dup(' ', level * 2));
+            }
         }
         __join_tag_end(sb, this);
         sb.append("\r\n");

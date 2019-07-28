@@ -164,4 +164,34 @@ public class NutConf {
     public static boolean AOP_USE_CLASS_ID = false;
 
     public static int AOP_CLASS_LEVEL = Opcodes.V1_6;
+
+    public static boolean HAS_LOCAL_DATE_TIME;
+    static {
+        try {
+            Class.forName("java.time.temporal.TemporalAccessor");
+            HAS_LOCAL_DATE_TIME = true;
+        }
+        catch (Throwable e) {
+        }
+    }
+    
+    public static boolean AOP_ENABLED = !"false".equals(System.getProperty("nutz.aop.enable"));
+    
+    public static void set(String key, Object value) {
+        if (value == null)
+            me().map.remove(key);
+        else
+            me().map.put(key, value);
+    }
+    
+    public static Object getOrDefault(String key, Object defaultValue) {
+        Object re = me().map.get(key);
+        if (re == null)
+            return defaultValue;
+        return re;
+    }
+
+    public static boolean SQLSERVER_USE_NVARCHAR = true;
+    
+    public static boolean DAO_USE_POJO_INTERCEPTOR = true;
 }

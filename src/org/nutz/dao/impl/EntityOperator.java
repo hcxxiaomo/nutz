@@ -1,6 +1,7 @@
 package org.nutz.dao.impl;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 
@@ -9,9 +10,11 @@ import org.nutz.dao.Condition;
 import org.nutz.dao.FieldMatcher;
 import org.nutz.dao.entity.Entity;
 import org.nutz.dao.entity.MappingField;
+import org.nutz.dao.entity.PkType;
 import org.nutz.dao.impl.sql.pojo.AbstractPItem;
 import org.nutz.dao.impl.sql.pojo.ConditionPItem;
 import org.nutz.dao.impl.sql.pojo.InsertByChainPItem;
+import org.nutz.dao.interceptor.PojoInterceptor;
 import org.nutz.dao.sql.Criteria;
 import org.nutz.dao.sql.DaoStatement;
 import org.nutz.dao.sql.Pojo;
@@ -26,13 +29,13 @@ import org.nutz.lang.LoopException;
 
 public class EntityOperator {
 
-    Entity<?> entity;
+    protected Entity<?> entity;
 
-    NutDao dao;
+    protected NutDao dao;
 
-    Object myObj;
+    protected Object myObj;
 
-    List<Pojo> pojoList = new ArrayList<Pojo>();
+    protected List<Pojo> pojoList = new ArrayList<Pojo>();
 
     private int updateCount;
 
@@ -75,6 +78,9 @@ public class EntityOperator {
         if (null == en)
             return null;
 
+        // 触发Pojo拦截器
+        _fireEvent("prevUpdate", obj, en);
+
         Pojo pojo = dao.pojoMaker.makeUpdate(en, null)
                                     .append(Pojos.Items.cndAuto(en, Lang.first(obj)))
                                     .setOperatingObject(obj);
@@ -90,16 +96,23 @@ public class EntityOperator {
         if (null == en)
             return null;
 
-        Pojo pojo = dao.pojoMaker.makeUpdate(en, null)
-                                    .append(Pojos.Items.cndAuto(en, Lang.first(obj)))
-                                    .setOperatingObject(obj);
-        pojo.append(new Static(" AND "));
+        // 触发Pojo拦截器
+        _fireEvent("prevUpdate", obj, en);
+        
+        Pojo pojo = dao.pojoMaker.makeUpdate(en, null);
+        
+        boolean pureCnd = en.getPkType() == PkType.UNKNOWN;
+        if (!pureCnd) {
+            pojo.append(Pojos.Items.cndAuto(en, Lang.first(obj)));
+            pojo.append(new Static(" AND "));
+        }
         if (cnd instanceof Criteria) {
             // 只取它的where条件
-            pojo.append(((Criteria)cnd).where().setTop(false));
+            pojo.append(((Criteria)cnd).where().setTop(pureCnd));
         } else {
-            pojo.append(new ConditionPItem(cnd).setTop(false));
+            pojo.append(new ConditionPItem(cnd).setTop(pureCnd));
         }
+        pojo.setOperatingObject(obj);
         pojoList.add(pojo);
         return pojo;
     }
@@ -110,6 +123,9 @@ public class EntityOperator {
 
         if (null == en)
             return null;
+
+        // 触发Pojo拦截器
+        _fireEvent("prevUpdate", obj, en);
 
         final FieldMatcher newFM;
         if (null == fm)
@@ -136,6 +152,10 @@ public class EntityOperator {
     public Pojo addUpdateAndIncrIfMatch(final Entity<?> en, final Object obj, String fieldName) {
         if (null == en)
             return null;
+
+        // 触发Pojo拦截器
+        _fireEvent("prevUpdate", obj, en);
+
         MappingField mf = en.getField(fieldName);
         Pojo pojo = dao.pojoMaker.makeUpdate(en, null)
                                     .append(new Static("," + mf.getColumnNameInSql() + "=" + mf.getColumnNameInSql() + "+1"))
@@ -160,7 +180,7 @@ public class EntityOperator {
             return null;
 
         Pojo pojo = dao.pojoMaker.makeDelete(entity);
-        pojo.append(Pojos.Items.cndAuto(entity, myObj));
+        pojo.append(Pojos.Items.cndId(entity, id));
         pojo.addParamsBy(myObj);
         pojoList.add(pojo);
         return pojo;
@@ -180,7 +200,8 @@ public class EntityOperator {
     public Pojo addDeleteSelfOnly() {
         if (null == entity)
             return null;
-
+        // 触发Pojo拦截器
+        _fireEvent("prevDelete", myObj, this.entity);
         Pojo pojo = dao.pojoMaker.makeDelete(entity);
         pojo.append(Pojos.Items.cndAuto(entity, myObj));
         pojo.addParamsBy(myObj);
@@ -195,6 +216,9 @@ public class EntityOperator {
     public List<Pojo> addInsert(Entity<?> en, Object obj) {
         if (null == en)
             return null;
+
+        // 触发Pojo拦截器
+        _fireEvent("prevInsert", obj, en);
 
         int len = Map.class.isAssignableFrom(obj.getClass()) ? 1 : Lang.eleSize(obj);
         List<Pojo> re = new ArrayList<Pojo>(len);
@@ -220,7 +244,6 @@ public class EntityOperator {
     public Pojo addInsertSelfOnly(Entity<?> en, Object obj) {
         if (null == en)
             return null;
-
         Pojo pojo;
 
         if (obj instanceof Chain) {
@@ -229,6 +252,8 @@ public class EntityOperator {
             pojo.append(new InsertByChainPItem((Chain)obj));
             pojo.setEntity(en);
         } else {
+            // 触发Pojo拦截器
+            _fireEvent("prevInsert", obj, en);
             pojo = dao.pojoMaker.makeInsert(en).setOperatingObject(obj);
         }
         pojoList.add(pojo);
@@ -262,5 +287,20 @@ public class EntityOperator {
 
     public int getPojoListSize() {
     	return pojoList.size();
+    }
+    
+    protected void _fireEvent(final String event, Object obj, final Entity<?> entity) {
+        final PojoInterceptor pint = entity.getInterceptor();
+        if (pint != null && pint.isAvailable()) {
+            if (obj.getClass().isArray() || obj instanceof Collection<?>) {
+                Lang.each(obj, new Each<Object>() {
+                    public void invoke(int index, Object ele, int length) {
+                        pint.onEvent(ele, entity, event);
+                    }
+                });
+            }
+            else
+                pint.onEvent(obj, entity, event);
+        }
     }
 }

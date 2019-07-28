@@ -9,6 +9,8 @@ import java.lang.reflect.Modifier;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.temporal.TemporalAccessor;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Collection;
@@ -130,12 +132,14 @@ public class Mirror<T> {
      *            对象。
      * @return Mirror， 如果 对象 null，则返回 null
      */
-    @SuppressWarnings("unchecked")
+    @SuppressWarnings({"unchecked", "rawtypes"})
     public static <T> Mirror<T> me(T obj) {
         if (obj == null)
             return null;
         if (obj instanceof Class<?>)
             return (Mirror<T>) me((Class<?>) obj);
+        if (obj instanceof Enum)
+            return (Mirror<T>) me(((Enum)obj).getDeclaringClass());
         return (Mirror<T>) me(obj.getClass());
     }
 
@@ -604,7 +608,7 @@ public class Mirror<T> {
         do {
             ann = cc.getAnnotation(annType);
             cc = cc.getSuperclass();
-        } while (null == ann && cc != Object.class);
+        } while (null == ann && null != cc && cc != Object.class);
         return ann;
     }
 
@@ -1470,7 +1474,7 @@ public class Mirror<T> {
     }
 
     /**
-     * @return 当前对象是否为小数 (float, dobule)
+     * @return 当前对象是否为小数 (float, double)
      */
     public boolean isDecimal() {
         return isFloat() || isDouble();
@@ -1628,6 +1632,24 @@ public class Mirror<T> {
                || java.util.Date.class.isAssignableFrom(klass)
                || java.sql.Date.class.isAssignableFrom(klass)
                || java.sql.Time.class.isAssignableFrom(klass);
+    }
+    
+    public boolean isLocalDateLike() {
+        try {
+            return NutConf.HAS_LOCAL_DATE_TIME && is(LocalDate.class);
+        }
+        catch (Exception e) {
+            return false;
+        }
+    }
+    
+    public boolean isLocalDateTimeLike() {
+        try {
+            return NutConf.HAS_LOCAL_DATE_TIME && is(TemporalAccessor.class);
+        }
+        catch (Exception e) {
+            return false;
+        }
     }
 
     public String toString() {

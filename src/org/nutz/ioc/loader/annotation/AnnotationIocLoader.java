@@ -1,5 +1,6 @@
 package org.nutz.ioc.loader.annotation;
 
+import java.lang.annotation.Annotation;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
@@ -132,9 +133,16 @@ public class AnnotationIocLoader implements IocLoader {
                 iocField.setName(field.getName());
                 IocValue iocValue;
                 if (Strings.isBlank(inject.value())) {
-                    iocValue = new IocValue();
-                    iocValue.setType(IocValue.TYPE_REFER_TYPE);
-                    iocValue.setValue(field);
+                    if (field.getName().equals("ioc")) {
+                        iocValue = new IocValue();
+                        iocValue.setType(IocValue.TYPE_REFER);
+                        iocValue.setValue("$ioc");
+                    }
+                    else {
+                        iocValue = new IocValue();
+                        iocValue.setType(IocValue.TYPE_REFER_TYPE);
+                        iocValue.setValue(field);
+                    }
                 } else
                     iocValue = Iocs.convert(inject.value(), true);
                 iocField.setValue(iocValue);
@@ -250,11 +258,20 @@ public class AnnotationIocLoader implements IocLoader {
 
         List<String> paramNames = MethodParamNamesScaner.getParamNames(method);
         Class<?>[] paramTypes = method.getParameterTypes();
+        Annotation[][] anns = method.getParameterAnnotations();
         for (int i = 0; i < paramTypes.length; i++) {
             Class<?> paramType = paramTypes[i];
             String paramName = (paramNames != null && (paramNames.size() >= (i - 1))) ? paramNames.get(i) : "arg" + i;
             IocValue ival = new IocValue();
-            Inject inject = paramType.getAnnotation(Inject.class);
+            Inject inject = null;
+            if (anns[i] != null && anns[i].length > 0) {
+                for (Annotation anno : anns[i]) {
+                    if (anno instanceof Inject) {
+                        inject = (Inject)anno;
+                        break;
+                    }
+                }
+            }
             if (inject == null || Strings.isBlank(inject.value())) {
                 ival.setType(IocValue.TYPE_REFER_TYPE);
                 ival.setValue(paramName + "#" + paramType.getName());
@@ -272,6 +289,7 @@ public class AnnotationIocLoader implements IocLoader {
             eventSet.setDepose(ib.depose().trim().intern());
         if (!Strings.isBlank(ib.fetch()))
             eventSet.setFetch(ib.fetch().trim().intern());
+        iobj.setSingleton(ib.singleton());
         map.put(beanName, iobj);
     }
 

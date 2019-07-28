@@ -1,25 +1,35 @@
 package org.nutz.http;
 
-import java.io.BufferedInputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.io.Reader;
-import java.io.StringReader;
-import java.io.Writer;
-import java.net.HttpURLConnection;
-import java.nio.charset.Charset;
-import java.util.Map;
-
 import org.nutz.lang.Encoding;
 import org.nutz.lang.Lang;
 import org.nutz.lang.Streams;
 import org.nutz.lang.Strings;
+import org.nutz.lang.util.NutMap;
+
+import java.io.*;
+import java.net.HttpURLConnection;
+import java.nio.charset.Charset;
+import java.util.Map;
 
 public class Response {
     private static final String DEF_PROTOCAL_VERSION = "HTTP/1.1";
+    
+    public Response() {
+    }
 
     public Response(HttpURLConnection conn, Map<String, String> reHeader) throws IOException {
+        status = conn.getResponseCode();
+        detail = conn.getResponseMessage();
+        this.header = Header.create(reHeader);
+        String s = header.get("Set-Cookie");
+        if (null != s) {
+            this.cookie = new Cookie();
+            this.cookie.afterResponse(null, conn, null); // 解决多个Set-Cookie丢失的问题
+        }
+        encode = getEncodeType();
+    }
+    
+    public Response(HttpURLConnection conn, NutMap reHeader) throws IOException {
         status = conn.getResponseCode();
         detail = conn.getResponseMessage();
         this.header = Header.create(reHeader);
@@ -34,14 +44,19 @@ public class Response {
     private Header header;
     private InputStream stream;
     private Cookie cookie;
-    private String protocal = DEF_PROTOCAL_VERSION;
+    private String protocol = DEF_PROTOCAL_VERSION;
     private int status;
     private String detail;
     private String content;
     private String encode;
 
+    public String getProtocol() {
+        return protocol;
+    }
+    
+    @Deprecated
     public String getProtocal() {
-        return protocal;
+        return protocol;
     }
 
     public int getStatus() {
@@ -82,8 +97,12 @@ public class Response {
                 if (tmp == null)
                     continue;
                 tmp = tmp.trim();
-                if (tmp.startsWith("charset="))
-                    return Strings.trim(tmp.substring(8)).trim();
+                if (tmp.startsWith("charset=")) {
+                    tmp = Strings.trim(tmp.substring(8)).trim();
+                    if (tmp.contains(","))
+                        tmp = tmp.substring(0, tmp.indexOf(',')).trim();
+                    return tmp;
+                }
             }
         }
         return Encoding.UTF8;
@@ -115,6 +134,15 @@ public class Response {
         return new InputStreamReader(getStream(), Charset.forName(charsetName));
     }
 
+	public Reader getReader(Charset charset) {
+
+        if (charset == null) {
+            throw new IllegalArgumentException("charset can not be null");
+        }
+
+
+        return getReader(charset.name());
+    }
     public Cookie getCookie() {
         return cookie;
     }

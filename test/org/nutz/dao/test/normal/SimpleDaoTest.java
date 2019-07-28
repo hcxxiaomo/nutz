@@ -1,9 +1,48 @@
 package org.nutz.dao.test.normal;
 
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
+
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.io.IOException;
+import java.lang.reflect.Method;
+import java.math.BigDecimal;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Timestamp;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.TreeMap;
+
+import javax.sql.DataSource;
+
 import org.junit.Test;
 import org.nutz.Nutz;
 import org.nutz.castor.Castors;
-import org.nutz.dao.*;
+import org.nutz.dao.Chain;
+import org.nutz.dao.Cnd;
+import org.nutz.dao.Condition;
+import org.nutz.dao.DB;
+import org.nutz.dao.Dao;
+import org.nutz.dao.DaoException;
+import org.nutz.dao.FieldFilter;
+import org.nutz.dao.FieldMatcher;
+import org.nutz.dao.Sqls;
+import org.nutz.dao.TableName;
 import org.nutz.dao.entity.Entity;
 import org.nutz.dao.entity.MappingField;
 import org.nutz.dao.entity.Record;
@@ -15,12 +54,29 @@ import org.nutz.dao.impl.SimpleDataSource;
 import org.nutz.dao.impl.sql.NutStatement;
 import org.nutz.dao.jdbc.JdbcExpert;
 import org.nutz.dao.jdbc.Jdbcs;
+import org.nutz.dao.jdbc.ValueAdaptor;
 import org.nutz.dao.pager.Pager;
 import org.nutz.dao.sql.Criteria;
 import org.nutz.dao.sql.DaoStatement;
 import org.nutz.dao.sql.Sql;
 import org.nutz.dao.test.DaoCase;
-import org.nutz.dao.test.meta.*;
+import org.nutz.dao.test.meta.A;
+import org.nutz.dao.test.meta.Abc;
+import org.nutz.dao.test.meta.Base;
+import org.nutz.dao.test.meta.ColDefineUser;
+import org.nutz.dao.test.meta.DynamicTable;
+import org.nutz.dao.test.meta.IssuePkVersion;
+import org.nutz.dao.test.meta.Master;
+import org.nutz.dao.test.meta.Pet;
+import org.nutz.dao.test.meta.PetObj;
+import org.nutz.dao.test.meta.Platoon;
+import org.nutz.dao.test.meta.PojoWithInteger;
+import org.nutz.dao.test.meta.PojoWithNull;
+import org.nutz.dao.test.meta.SimplePOJO;
+import org.nutz.dao.test.meta.Soldier;
+import org.nutz.dao.test.meta.Tank;
+import org.nutz.dao.test.meta.TestMysqlIndex;
+import org.nutz.dao.test.meta.UseBlobClob;
 import org.nutz.dao.test.meta.issue1074.PojoSql;
 import org.nutz.dao.test.meta.issue1163.Issue1163Master;
 import org.nutz.dao.test.meta.issue1163.Issue1163Pet;
@@ -39,6 +95,10 @@ import org.nutz.dao.test.meta.issue726.Issue726;
 import org.nutz.dao.test.meta.issue901.XPlace;
 import org.nutz.dao.test.meta.issue918.Region;
 import org.nutz.dao.test.meta.issue928.BeanWithSet;
+import org.nutz.dao.test.meta.issueXXX.IotObject;
+import org.nutz.dao.test.meta.issueXXX.IotProductStatus;
+import org.nutz.dao.test.meta.nutzcn.AbcPet;
+import org.nutz.dao.test.meta.nutzcn.AbcUser;
 import org.nutz.dao.util.Daos;
 import org.nutz.dao.util.blob.SimpleBlob;
 import org.nutz.dao.util.blob.SimpleClob;
@@ -49,25 +109,11 @@ import org.nutz.json.Json;
 import org.nutz.lang.Files;
 import org.nutz.lang.Lang;
 import org.nutz.lang.Stopwatch;
+import org.nutz.lang.Streams;
 import org.nutz.lang.random.R;
 import org.nutz.lang.util.NutMap;
 import org.nutz.trans.Atom;
 import org.nutz.trans.Trans;
-
-import javax.sql.DataSource;
-
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.io.ObjectOutputStream;
-import java.lang.reflect.Method;
-import java.math.BigDecimal;
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.SQLException;
-import java.sql.Timestamp;
-import java.util.*;
-
-import static org.junit.Assert.*;
 
 public class SimpleDaoTest extends DaoCase {
 
@@ -429,8 +475,9 @@ public class SimpleDaoTest extends DaoCase {
         assertEquals(9090, pet.getId());
     }
 
-    @Test
-    public void test_use_blob_clob() {
+    @SuppressWarnings("resource")
+	@Test
+    public void test_use_blob_clob() throws FileNotFoundException, IOException, SQLException {
         dao.create(UseBlobClob.class, true);
         UseBlobClob use = new UseBlobClob();
         use.setName("wendal");
@@ -441,6 +488,12 @@ public class SimpleDaoTest extends DaoCase {
         use.setX(new SimpleBlob(Files.findFile("log4j.properties")));
         use.setY(new SimpleClob(Files.findFile("log4j.properties")));
         dao.update(use);
+        
+        use = dao.fetch(UseBlobClob.class, "wendal");
+        assertNotNull(use.getX());
+        assertNotNull(use.getY());
+        
+        assertTrue(Streams.equals(use.getX().getBinaryStream(), new FileInputStream(Files.findFile("log4j.properties"))));
     }
 
     @Test
@@ -851,7 +904,7 @@ public class SimpleDaoTest extends DaoCase {
     public void test_issue_1235() {
         dao.create(Pet.class, false);
         dao.insert(Pet.create(R.UU32()));
-        List<Record> list = dao.query("t_pet", null, null, "id,name");
+        List<Record> list = dao.query("t_pet", Cnd.where("age", ">", 0), null, "id,name");
         assertNotNull(list);
         assertTrue(list.size() > 0);
         assertEquals(2, list.get(0).size());
@@ -890,9 +943,12 @@ public class SimpleDaoTest extends DaoCase {
         platoon.setLeader(soldier);
         platoon1.setLeader(soldier1);
         platoon2.setLeader(soldier2);
-        dao.insertWith(platoon, null);
-        dao.insertWith(platoon1, null);
-        dao.insertWith(platoon2, null);
+        platoon.setLeader2(soldier);
+        platoon1.setLeader2(soldier1);
+        platoon2.setLeader2(soldier2);
+        dao.insertWith(platoon, "^(base|leader)$");
+        dao.insertWith(platoon1, "^(base|leader)$");
+        dao.insertWith(platoon2, "^(base|leader)$");
 
         // =======================================
         // 用条件查
@@ -904,6 +960,7 @@ public class SimpleDaoTest extends DaoCase {
         assertEquals("wendal", platoon.getName());
 
         assertNotNull(platoon.getLeader());
+        System.out.println(Json.toJson(platoon.getLeader()));
         assertEquals("stone", platoon.getLeader().getName());
 
         assertNotNull(platoon.getBase());
@@ -1169,5 +1226,175 @@ public class SimpleDaoTest extends DaoCase {
             // TODO Auto-generated catch block
             e.printStackTrace();
         }
+    }
+    
+    @Test
+    public void test_cnd_clone2() {
+        // 序列化的方式, 不要考究SQL条件的合理性
+        dao.insert(Pet.create(30));
+        Cnd cnd = Cnd.where("age", ">", 15).and(Cnd.exps("age", ">", 0).and("age", "<", 16));
+        cnd.asc("age");
+        int t = dao.count(Pet.class, cnd);
+        assertNotNull(Lang.toBytes(cnd));
+        Stopwatch sw = Stopwatch.begin();
+        cnd.clone();
+        sw.stop();
+        System.out.println(sw);
+        assertEquals(t, dao.count(Pet.class, cnd.clone()));
+        
+        // 仅拷贝where条件
+        Cnd cndCloned = cnd.cloneWhere();
+        assertEquals(t, dao.count(Pet.class, cndCloned));
+        
+        // 修改原来的cnd条件, 使其互相矛盾,结果肯定是0
+        cnd.and("age", "<", 0);
+        assertEquals(0, dao.count(Pet.class, cnd));
+        
+        // 克隆的cndCloned应该不受影响
+        assertEquals(t, dao.count(Pet.class, cndCloned));
+    }
+    
+    @Test
+    public void test_issue_1294() {
+        dao.clear(Pet.class);
+        dao.insert(Pet.create("wendal"));
+        Record re = new Record();
+        re.put(".table", "t_pet");
+        re.put("*name", "wendal");
+        re.put("age", 30);
+        dao.update(re, Cnd.where("age", ">", -100));
+        assertEquals(30, dao.fetch(Pet.class).getAge());
+        
+        re = new Record();
+        re.put(".table", "t_pet");
+        re.put("age", 31);
+        dao.update(re, Cnd.where("age", ">", -100));
+        assertEquals(31, dao.fetch(Pet.class).getAge());
+    }
+    
+    @Test
+    public void test_issue_xxx() {
+        final Object[] re = new Object[1];
+        ValueAdaptor va = new ValueAdaptor() {
+            
+            @Override
+            public void set(PreparedStatement stat, Object obj, int index) throws SQLException {
+                re[0] = obj;
+                stat.setString(index, "ABC");
+            }
+            
+            @Override
+            public Object get(ResultSet rs, String colName) throws SQLException {
+                // TODO Auto-generated method stub
+                return null;
+            }
+        };
+        List<String> name = Arrays.asList("wendal");
+        Sql sql = Sqls.create("select * from t_pet where name=@name");
+        sql.setParam("name", name);
+        sql.setValueAdaptor("name", va);
+        dao.execute(sql);
+        assertEquals(name, re[0]);
+    }
+    
+    @Test
+    public void test_update_integer() {
+        dao.create(PojoWithInteger.class, true);
+        PojoWithInteger pojo = new PojoWithInteger();
+        pojo.setName("wendal");
+        pojo.setAge(20);
+        pojo.setT(12);
+        dao.insert(pojo);
+        
+        pojo.setT(null);
+        pojo.setAge(30);
+        dao.updateIgnoreNull(pojo);
+        pojo = dao.fetch(PojoWithInteger.class, pojo.getName());
+        assertEquals(30, pojo.getAge());
+        assertEquals(12, pojo.getT().intValue());
+        
+
+        pojo.setT(0);
+        pojo.setAge(31);
+        dao.updateIgnoreNull(pojo);
+        pojo = dao.fetch(PojoWithInteger.class, pojo.getName());
+        assertEquals(31, pojo.getAge());
+        assertEquals(0, pojo.getT().intValue());
+    }
+    
+    @Test
+    public void test_issue_1425() {
+        List<NutMap> maps = new LinkedList<NutMap>();
+        // 第一个对象只有name和alias
+        NutMap map = new NutMap();
+        map.put("name", "wendal");
+        map.put("alias", "XXX");
+        maps.add(map);
+        // 第二个对象只有name和age
+        map = new NutMap();
+        map.put("name", "zozoh");
+        map.put("age", 30);
+        maps.add(map);
+        dao.create(Pet.class, true);
+        
+        // 设置表名
+        maps.get(0).put(".table", "t_pet");
+        // 应该会插入name, alias, age 三个字段
+        dao.fastInsert(maps, true);
+        
+        // 按上述插入
+        // --> wendal的alias应该存在, age不存在
+        Pet wendal = dao.fetch(Pet.class, "wendal");
+        assertEquals("XXX", wendal.getNickName());
+        assertEquals(0, wendal.getAge());
+        
+     // --> wendal的alias应该不存在, age存在
+        Pet zozoh = dao.fetch(Pet.class, "zozoh");
+        assertEquals(null, zozoh.getNickName());
+        assertEquals(30, zozoh.getAge());
+    }
+    
+    @Test
+    public void test_wizzer() {
+        dao.create(IotObject.class, true);
+        
+        IotObject a = new IotObject();
+        a.setStat(IotProductStatus.DEVELOP);
+        dao.insert(a);
+        a = dao.fetch(IotObject.class, a.getId());
+        assertNotNull(a);
+        assertEquals(IotProductStatus.DEVELOP, a.getStat());
+        System.out.println(a.getStat().value());
+        for (IotProductStatus stat : IotProductStatus.values()) {
+            System.out.println("-->"+stat.value());
+        }
+        dao.setupProperties(new NutMap());
+    }
+    
+    @Test
+    public void test_queryByJoin_2() {
+        dao.create(AbcUser.class, true);
+        dao.create(AbcPet.class, true);
+        Map<String, Condition> cnds = new HashMap<String, Condition>();
+        cnds.put("pet", Cnd.where("id", ">", 0));
+        dao.queryByJoin(AbcUser.class, null, null, null, cnds);
+    }
+    
+    @Test
+    public void test_create_table_by_map() {
+        String tableName = "t_from_map";
+        dao.drop(tableName);
+        NutMap map = new NutMap();
+        map.put("*+id", 0);
+        map.put("*name", "");
+        map.put("age", 0);
+        // 指定表名称
+        dao.create(tableName, map, true);
+        // 通过.table指定
+        map.put(".table", tableName);
+        dao.create(map, true);
+        dao.insert(new NutMap(".table", tableName).setv("name", "wendal").setv("age", 18));
+        Record re = dao.fetch(tableName, Cnd.where("name", "=", "wendal"));
+        assertEquals(18, re.getInt("age"));
     }
 }
